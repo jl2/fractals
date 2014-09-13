@@ -2,7 +2,11 @@
 
 (in-package #:fractal)
 
+;; I'm not aiming for super fast code (although faster is better)
+;; But turning on optimizations never hurts
 (declaim (optimize (speed 3) (safety 1) (compilation-speed 0) (debug 0)))
+
+;; Some interesting Mandlbrot set locations to zoom in on:
 
 ;; :xloc -0.5543204543726485
 ;; :yloc 0.5560134767972504
@@ -19,11 +23,9 @@
 ;; :xloc 0.29579232190635435
 ;; :yloc 0.48778241011705686
 
-;;; "fractal" goes here.
-
-
 
 (defun map-val (x width xmin xmax)
+  "Map a value from the range 0,width to the range xmin,xmax"
   (declare (x (unsigned-byte 32)))
   (declare (width (unsigned-byte 32)))
   (declare (xmin double-float))
@@ -34,11 +36,13 @@
 		 ((unsigned-byte 32) (unsigned-byte 32) double-float double-float )) map-val))
 
 (defun set-pixel (img x y r g b)
+  "Set a pixel in im at location x,y to color (r,g,b)"
   (setf (aref img x y 0) r)
   (setf (aref img x y 1) g)
   (setf (aref img x y 2) b))
 
 (defun increment-pixel (img x y)
+  "Increment each color component of the pixel in img at location x,y by 1"
   (if (< (aref img y x 0) 255)
 	  (progn 
 		(incf (aref img y x 0))
@@ -46,6 +50,7 @@
 		(incf (aref img y x 2)))))
 
 (defun assign-pixel (img x y iter iterations)
+  "Color the pixel of img at location x,y depending on the number of iterations and the max iterations"
   (declare (x double-float))
   (declare (y double-float))
   (declare (iter (unsigned-byte 32)))
@@ -57,19 +62,12 @@
 		 (b (- 255 (* ip 255) )))
 	(set-pixel img x y (truncate r) (truncate g) (truncate b))))
 
-(defun mc (x y)
-  (declare (x double-float))
-  (declare (y double-float))
-  (complex x y))
-
-(declaim (ftype (function
-		 (double-float double-float (complex double-float) )) mc))
-
 (defun make-mandelbrot (&key (file-name)
 							 (width 100) (height 100)
 							 (xmin -2.5) (xmax 1.0)
 							 (ymin -1.0) (ymax 1.0)
 							 (iterations 100))
+  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
   (declare (width (unsigned-byte 32)))
   (declare (height (unsigned-byte 32)))
   (declare (iterations (unsigned-byte 32)))
@@ -95,7 +93,7 @@
 		  (let ((iters
 				 (do* ((xp (map-val j width xmin xmax))
 					   
-					  (cp (mc xp yp) (+ (* cp cp) (mc xp yp)))
+					  (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
 					  (iter 0 (incf iter)))
 					 ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
 					 (declare (xp double-float))
@@ -112,6 +110,7 @@
 							 (xloc 0.0) (yloc 0.0)
 							 (xwin 3.0) (ywin 2.0)
 							 (iterations 100))
+  "Generate a Mandelbrot Set fractal and save to the file name given. The portion of the set drawn is centered at xloc,yloc with a window xwin wide and ywin tall."
   (let ((hx (/ xwin 2.0))
 		(hy (/ ywin 2.0)))
 	(make-mandelbrot :file-name file-name
@@ -122,7 +121,7 @@
 					 :ymax (+ yloc hy)
 					 :iterations iterations)))
 
-(defun make-mandelbrot-animation (&key (file-format "image~a.png")
+(defun make-mandelbrot-animation (&key (file-name-format "image~a.png")
 								   (width 100)
 								   (height 100)
 								   (iterations 100)
@@ -132,11 +131,12 @@
 								   (ywin 0.5)
 								   (zoom 10.0)
 								   (count 10))
+  "Generate a series of Mandelbrot Set images, zooming into the location xloc,yloc. The initial window width and height are given by xwin and ywin.  The number of images is given by count. Zoom specifies how much to zoom in for each frame.  The file-name-format parameter specifies a format string that can be used in the call (format t file-name-format i) to generate a file name for the ith file in the sequence - typically something like image~a.png."
   (dotimes (i count)
 	(let ((cxwin (/ xwin (expt zoom i)))
 		  (cywin (/ ywin (expt zoom i))))
 	  (format t "window: ~a ~a~%" cxwin cywin)
-	  (make-mandelbrot-window :file-name (format nil file-format i)
+	  (make-mandelbrot-window :file-name (format nil file-name-format i)
 							  :width width :height height
 							  :xloc xloc
 							  :yloc yloc
@@ -144,9 +144,12 @@
 							  :ywin cywin
 							  :iterations iterations))))
 
-(defun home-dir (path) (merge-pathnames path (user-homedir-pathname)))
+(defun home-dir (path)
+  "Utility function to make relative path names relative to the user's home directory to work around Cairo weirdness."
+  (merge-pathnames path (user-homedir-pathname)))
 
-(defun omg-cairo (fname)
+(defun omg-cairo (file-name)
+  "Test writing a PNG file with Cairo."
   (let* ((width 800)
 		(height 600)
 		(cnt 250)
@@ -155,7 +158,7 @@
 		(dt (/ (- tmax tmin) cnt))
 		(xp nil)
 		(yp nil))
-	(cl-cairo2:with-png-file ((home-dir fname) :argb32 width height)
+	(cl-cairo2:with-png-file ((home-dir file-name) :argb32 width height)
 							 (cl-cairo2:set-source-rgba 1.0 1.0 1.0 1.0)
 							 (cl-cairo2:paint)
 							 (cl-cairo2:translate 400.0 300.0)
@@ -174,13 +177,15 @@
 							   (cl-cairo2:stroke))))
 
 (defun deg-to-rad (deg)
+  "Convert degrees to radians."
   (* deg (/ pi 180)))
 
-(defun spiral (fname &key (twists 30))
+(defun spiral (file-name &key (twists 30))
+  "Draw a spiral with the specified number of twists, saving into the given file name."
   (let* ((width 800)
 		(height 600)
 		(cnt (* twists 360)))
-	(cl-cairo2:with-png-file ((home-dir fname) :argb32 width height)
+	(cl-cairo2:with-png-file ((home-dir file-name) :argb32 width height)
 							 (cl-cairo2:set-source-rgba 1.0 1.0 1.0 0.0)
 							 (cl-cairo2:paint)
 							 (cl-cairo2:translate 400.0 0.0)
@@ -195,11 +200,13 @@
 							   (cl-cairo2:stroke))))
 
 (defun to-cart (len angle)
+  "Convert a length and angle (polar coordinates) into x,y rectangular coordinates."
   (values (* (cos (deg-to-rad angle)) len) (* (sin (deg-to-rad angle)) len)))
 
-(defun fractal-tree (fname &key (length 600) (maxdepth 4) (limbs 2) (width 800) (height 600))
+(defun fractal-tree (file-name &key (length 600) (maxdepth 4) (limbs 2) (width 800) (height 600))
+  "Draw a fractal tree into the specified file, recursing to maxdepth, with the specified number of limbs at each level."
   (cl-cairo2:with-png-file
-   ((home-dir fname) :argb32 width height)
+   ((home-dir file-name) :argb32 width height)
 
    (cl-cairo2:set-source-rgba 0.0 0.0 0.0 1.0)
    (cl-cairo2:paint)
@@ -238,6 +245,7 @@
 
 
 (defun to-window (x y xmin ymin xmax ymax wxmax wymax)
+  
   (let* ((ydiff (- ymax ymin))
 		 (xdiff (- xmax xmin))
 		 (x2 (- x xmin))
@@ -246,8 +254,9 @@
 		 (y3 (/ y2 ydiff)))
 	(values (* wxmax x3) (* wymax y3))))
 
-(defun spiral-dots (&key (file) (dots 10000) (angle 1.0) (scale 1.1)
+(defun spiral-dots (&key (file-name) (dots 10000) (angle 1.0) (scale 1.1)
 						 (width 800) (height 600))
+  "Draw an optical illusion by generating the specified number of dots, then rotating them by angle and scaling them by scale."
   (let ((img (png:make-image height width 3 8)))
 	(let ((hw (/ width 2))
 		  (hh (/ height 2))
@@ -268,17 +277,18 @@
 		   (if (and (< rxs width) (< rys height) (> rxs 0) (> rys 0))
 			   (set-pixel img (truncate rys) (truncate rxs) 255 255 255)))
 		  )))
-	  (with-open-file (output file :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+	  (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
 					(png:encode img output))))
 
 
-(defun strange-attractor (&key (file) (xxmin -2.0) (xxmax 2.0) (yymin -2.0) (yymax 2.0)
-							   (width 1600) (height 1600) (iter1 1000) (iter2 5000)
+(defun strange-attractor (&key (file-name) (xxmin -2.0) (xxmax 2.0) (yymin -2.0) (yymax 2.0)
+							   (width 1600) (height 1600) (iterations 5000000)
 							   (a 2.24)
 							   (b 0.43)
 							   (c -0.65)
 							   (d -2.43)
 							   (e 1.0))
+  "Draw a strange-attractor fractal into file-name, zoomed into the window specified by xxmin,xxmax and yymin,yymax.  iterations is the number of iterations to run.  a, b, c, d, and e are the parameters of the strange attractor and can be modified for various effects."
   (let ((xinc (/ width (- xxmax xxmin)))
 		(yinc (/ height (- yymax yymin)))
 		(x 0)
@@ -286,8 +296,7 @@
 		(z 0)
 		(img (png:make-image height width 3 8)))
 	
-	(dotimes (i iter1)
-	  (dotimes (j iter2)
+	(dotimes (i iterations)
 		(let ((xx (- (sin (* a y)) (* z (cos (* b x)))))
 			  (yy (- (sin (* c x)) (cos (* d y))))
 			  (zz (* e (sin x))))
@@ -299,7 +308,7 @@
 			  (let ((xxx (* (- xx xxmin) xinc))
 					(yyy (* (- yy yymin) yinc)))
 				(if (and (< xxx width) (< yyy height))
-					(increment-pixel img (truncate xxx) (truncate yyy))))))))
+					(increment-pixel img (truncate xxx) (truncate yyy)))))))
 
-	(with-open-file (output file :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+	(with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
 					(png:encode img output))))
