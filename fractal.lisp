@@ -2,6 +2,8 @@
 
 (in-package #:fractal)
 
+(declaim (optimize (speed 3) (safety 1) (compilation-speed 0) (debug 0)))
+
 ;; :xloc -0.5543204543726485
 ;; :yloc 0.5560134767972504
 
@@ -19,50 +21,88 @@
 
 ;;; "fractal" goes here.
 
+
+
 (defun map-val (x width xmin xmax)
+  (declare (x (unsigned-byte 32)))
+  (declare (width (unsigned-byte 32)))
   (declare (xmin double-float))
   (declare (ymax double-float))
-  (+ xmin (* (- xmax xmin) (/ x width 1.0))))
+  (+ xmin (* (- xmax xmin) (/ x width 1.0d0))))
+
+(declaim (ftype (function
+		 ((unsigned-byte 32) (unsigned-byte 32) double-float double-float )) map-val))
 
 (defun set-pixel (img x y r g b)
   (setf (aref img x y 0) r)
   (setf (aref img x y 1) g)
   (setf (aref img x y 2) b))
 
+(defun increment-pixel (img x y)
+  (if (< (aref img y x 0) 255)
+	  (progn 
+		(incf (aref img y x 0))
+		(incf (aref img y x 1))
+		(incf (aref img y x 2)))))
+
 (defun assign-pixel (img x y iter iterations)
-  (let* ((ip (/ iter iterations 1.0))
+  (declare (x double-float))
+  (declare (y double-float))
+  (declare (iter (unsigned-byte 32)))
+  (declare (iterations (unsigned-byte 32)))
+
+  (let* ((ip (/ iter iterations 1.0d0))
 		 (r (* ip 255))
 		 (g (* ip 255))
 		 (b (- 255 (* ip 255) )))
 	(set-pixel img x y (truncate r) (truncate g) (truncate b))))
 
 (defun mc (x y)
-  (complex (coerce x 'double-float) (coerce y 'double-float)))
+  (declare (x double-float))
+  (declare (y double-float))
+  (complex x y))
+
+(declaim (ftype (function
+		 (double-float double-float (complex double-float) )) mc))
 
 (defun make-mandelbrot (&key (file-name)
 							 (width 100) (height 100)
 							 (xmin -2.5) (xmax 1.0)
 							 (ymin -1.0) (ymax 1.0)
 							 (iterations 100))
-  (declare (xmin double-float))
-  (declare (ymin double-float))
-  (declare (xmax double-float))
-  (declare (ymax double-float))
-  
+  (declare (width (unsigned-byte 32)))
+  (declare (height (unsigned-byte 32)))
+  (declare (iterations (unsigned-byte 32)))
+  (declare (xmin (or single-float double-float)))
+  (declare (ymin (or single-float double-float)))
+  (declare (xmax (or single-float double-float)))
+  (declare (ymax (or single-float double-float)))
+  (setf xmin (coerce xmin 'double-float))
+  (setf ymin (coerce ymin 'double-float))
+  (setf xmax (coerce xmax 'double-float))
+  (setf ymax (coerce ymax 'double-float))
+			  
   (let ((img (png:make-image height width 3 8)))
 	(dotimes (i (png:image-height img))
+	  (declare (i (unsigned-byte 32)))
+
 	  (let ((yp (map-val i height ymax ymin)))
 		(declare (xp double-float))
+
 		(dotimes (j (png:image-width img))
+		  (declare (j (unsigned-byte 32)))
+
 		  (let ((iters
-				 (do* ((xp (map-val (coerce j 'float) (coerce width 'float) xmin xmax))
+				 (do* ((xp (map-val j width xmin xmax))
 					   
 					  (cp (mc xp yp) (+ (* cp cp) (mc xp yp)))
 					  (iter 0 (incf iter)))
 					 ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
 					 (declare (xp double-float))
 					 (declare (cp double-complex))
+					 (declare (iter (unsigned-byte 32)))
 					 )))
+			(declare (iters (unsigned-byte 32)))
 			(assign-pixel img i j iters iterations)))))
 	(with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
 					(png:encode img output))))
@@ -106,17 +146,6 @@
 
 (defun home-dir (path) (merge-pathnames path (user-homedir-pathname)))
 
-;; (defun omg-cairo (fname)
-;;   (cl-cairo2:with-png-file ((home-dir fname) :argb32 800 600)
-;; 						   (cl-cairo2:set-source-rgba 1.0 1.0 1.0 0.5)
-;; 						   (cl-cairo2:paint)
-;; 						   (cl-cairo2:scale 800 600)
-;; 						   (cl-cairo2:set-line-width 0.1)
-;; 						   (cl-cairo2:set-source-rgba 0 0 1 0.75)
-;; 						   (cl-cairo2:rectangle 0.25 0.25 0.5 0.5)
-;; 						   (cl-cairo2:stroke)))
-
-
 (defun omg-cairo (fname)
   (let* ((width 800)
 		(height 600)
@@ -155,7 +184,6 @@
 							 (cl-cairo2:set-source-rgba 1.0 1.0 1.0 0.0)
 							 (cl-cairo2:paint)
 							 (cl-cairo2:translate 400.0 0.0)
-							 ;; (cl-cairo2:scale 4.0 4.0)
 							 (cl-cairo2:set-line-width 2)
 							 (cl-cairo2:set-source-rgba 0 0 0 1.0)
 							 (cl-cairo2:move-to 0 0)
@@ -187,7 +215,7 @@
 	   (nx ny) (to-cart length angle)
 
 	   (cl-cairo2:set-source-rgba 0 1.0 0 transparency)
-	   (cl-cairo2:set-line-width (+ 1 (* 2 depth)))
+	   (cl-cairo2:set-line-width (+ 1 (* 1.25 depth)))
 	   (cl-cairo2:move-to x y)
 	   (cl-cairo2:line-to (+ x nx) (+ y ny))
 	   (cl-cairo2:stroke)
@@ -200,7 +228,7 @@
 				   (nl (/ length 2.0))
 				   (ang1 (+ angle (/ 45 limbs) (* i (/ 180 limbs))))
 				   (ang2 (- angle (/ 45 limbs) (* i (/ 180 limbs))))
-				   (ntrans (* 1.25 (/ depth maxdepth) transparency))
+				   (ntrans (* 1.75 (/ depth maxdepth) transparency))
 				   (ndepth (- depth 1)))
 
 			   (draw-tree nnx nny nl ang1 ntrans ndepth)
@@ -233,7 +261,6 @@
 
 		  (multiple-value-bind
 		   (rxs rys) (to-window rx ry -1.0 -1.0 1.0 1.0 width height)
-		   ;; (format t "~a,~a -> ~a,~a~%" rx ry rxs rys)
 		   (set-pixel img (truncate rys) (truncate rxs) 255 255 255)
 		   )
 		  (multiple-value-bind
@@ -242,4 +269,37 @@
 			   (set-pixel img (truncate rys) (truncate rxs) 255 255 255)))
 		  )))
 	  (with-open-file (output file :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+					(png:encode img output))))
+
+
+(defun strange-attractor (&key (file) (xxmin -2.0) (xxmax 2.0) (yymin -2.0) (yymax 2.0)
+							   (width 1600) (height 1600) (iter1 1000) (iter2 5000)
+							   (a 2.24)
+							   (b 0.43)
+							   (c -0.65)
+							   (d -2.43)
+							   (e 1.0))
+  (let ((xinc (/ width (- xxmax xxmin)))
+		(yinc (/ height (- yymax yymin)))
+		(x 0)
+		(y 0)
+		(z 0)
+		(img (png:make-image height width 3 8)))
+	
+	(dotimes (i iter1)
+	  (dotimes (j iter2)
+		(let ((xx (- (sin (* a y)) (* z (cos (* b x)))))
+			  (yy (- (sin (* c x)) (cos (* d y))))
+			  (zz (* e (sin x))))
+		  (setf x xx
+				y yy
+				z zz)
+		  (if (and (< xx xxmax) (> xx xxmin)
+				   (< yy yymax) (> yy yymin))
+			  (let ((xxx (* (- xx xxmin) xinc))
+					(yyy (* (- yy yymin) yinc)))
+				(if (and (< xxx width) (< yyy height))
+					(increment-pixel img (truncate xxx) (truncate yyy))))))))
+
+	(with-open-file (output file :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
 					(png:encode img output))))

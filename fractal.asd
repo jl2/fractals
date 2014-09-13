@@ -2,10 +2,11 @@
 
 (asdf:defsystem #:fractal
   :serial t
-  :description "Describe fractal here"
-  :author "Your Name <your.name@example.com>"
-  :license "Specify license here"
+  :description "Library of fractal drawing functions, including Mandelbrot set, strange attractors, fractal trees, and some other random stuff."
+  :author "Jeremiah LaRocco <jeremiah.larocco@gmail.com>"
+  :license "ISC"
   :depends-on (#:png #:cl-cairo2)
-  :components ((:file "package")
+  :components ((:static-file "LICENSE")
+               (:file "package")
                (:file "fractal")))
 

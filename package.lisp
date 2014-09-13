@@ -9,6 +9,7 @@
 		   #:spiral
 		   #:fractal-tree
 		   #:spiral-dots
+		   #:strange-attractor
 		   )
   )
 
