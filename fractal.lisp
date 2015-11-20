@@ -68,42 +68,74 @@
                              (ymin -1.0) (ymax 1.0)
                              (iterations 100))
   "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
-  (declare (width (unsigned-byte 32)))
-  (declare (height (unsigned-byte 32)))
-  (declare (iterations (unsigned-byte 32)))
-  (declare (xmin (or single-float double-float)))
-  (declare (ymin (or single-float double-float)))
-  (declare (xmax (or single-float double-float)))
-  (declare (ymax (or single-float double-float)))
-  (setf xmin (coerce xmin 'double-float))
-  (setf ymin (coerce ymin 'double-float))
-  (setf xmax (coerce xmax 'double-float))
-  (setf ymax (coerce ymax 'double-float))
+  (declare (type (unsigned-byte 32) width height iterations))
+  (let ((xxmin (coerce xmin 'double-float))
+        (yymin (coerce ymin 'double-float))
+        (xxmax (coerce xmax 'double-float))
+        (yymax (coerce ymax 'double-float)))
+    (declare (type double-float xxmin yymin xxmax yymax))
+
+    (let ((img (png:make-image height width 3 8)))
+      (dotimes (i (png:image-height img))
+        (declare (type (unsigned-byte 32) i))
+
+        (let ((yp (map-val i height yymax yymin)))
+          (declare (type double-float yp))
+
+          (dotimes (j (png:image-width img))
+            (declare (type (unsigned-byte 32) j))
+
+            (let ((iters
+                   (do* ((xp (map-val j width xxmin xxmax))
+                         
+                         (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
+                         (iter 0 (incf iter)))
+                        ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
+                     (declare (type double-float xp))
+                     ;; (declare (cp double-complex))
+                     (declare (type (unsigned-byte 32) iter))
+                     )))
+              (declare (type (unsigned-byte 32) iters))
+              (assign-pixel img i j iters iterations)))))
+      (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+        (png:encode img output)))))
+
+(defun make-burning-ship (&key (file-name)
+                            (width 100) (height 100)
+                            (xmin -2.5) (xmax 1.0)
+                            (ymin -1.0) (ymax 1.0)
+                            (iterations 100))
+  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+  (declare (type (unsigned-byte 32) width height iterations))
+  (let ((xxmin (coerce xmin 'double-float))
+        (yymin (coerce ymin 'double-float))
+        (xxmax (coerce xmax 'double-float))
+        (yymax (coerce ymax 'double-float)))
+    (declare (type double-float xxmin yymin xxmax yymax))
   
   (let ((img (png:make-image height width 3 8)))
     (dotimes (i (png:image-height img))
-      (declare (i (unsigned-byte 32)))
+      (declare (type (unsigned-byte 32) i))
 
-      (let ((yp (map-val i height ymax ymin)))
-        (declare (xp double-float))
+      (let ((yp (map-val i height yymax yymin)))
+        (declare (type double-float yp))
 
         (dotimes (j (png:image-width img))
-          (declare (j (unsigned-byte 32)))
+          (declare (type (unsigned-byte 32) j))
 
           (let ((iters
-                 (do* ((xp (map-val j width xmin xmax))
-                       
-                       (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
+                 (do* ((xp (map-val j width xxmin xxmax))
+                       (cp (complex xp yp) (+ (expt (complex (abs (realpart cp)) (abs (imagpart cp))) 2) (complex xp yp)))
                        (iter 0 (incf iter)))
                       ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
-                      (declare (xp double-float))
-                      (declare (cp double-complex))
-                      (declare (iter (unsigned-byte 32)))
+                      (declare (type double-float xp))
+;;                      (declare (type double-complex cp))
+                      (declare (type (unsigned-byte 32) iter))
                       )))
-            (declare (iters (unsigned-byte 32)))
+            (declare (type (unsigned-byte 32) iters))
             (assign-pixel img i j iters iterations)))))
     (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
-                    (png:encode img output))))
+                    (png:encode img output)))))
 
 (defun make-mandelbrot-window (&key (file-name)
                                     (width 100) (height 100)
@@ -281,25 +313,53 @@
                     (png:encode img output))))
 
 
-(defun strange-attractor (&key (file-name) (xxmin -2.0) (xxmax 2.0) (yymin -2.0) (yymax 2.0)
-                               (width 1600) (height 1600) (iterations 5000000)
-                               (a 2.24)
-                               (b 0.43)
-                               (c -0.65)
-                               (d -2.43)
-                               (e 1.0))
-  "Draw a strange-attractor fractal into file-name, zoomed into the window specified by xxmin,xxmax and yymin,yymax.  iterations is the number of iterations to run.  a, b, c, d, and e are the parameters of the strange attractor and can be modified for various effects."
-  (let ((xinc (/ width (- xxmax xxmin)))
-        (yinc (/ height (- yymax yymin)))
-        (x 0)
-        (y 0)
-        (z 0)
-        (img (png:make-image height width 3 8)))
-    
+(defstruct strange-attractor 
+  (a 2.24 :type single-float)
+  (b 0.43 :type single-float)
+  (c -0.65 :type single-float)
+  (d -2.43 :type single-float)
+  (e 1.0 :type single-float)
+  (f 1.0 :type single-float)
+  )
+
+(defun random-float (minf maxf)
+  (+ (random (- maxf minf)) minf))
+
+(defun random-sa ()
+  (make-strange-attractor
+   :a (random-float -0.5 4.0)
+   :b (random-float -0.5 4.0)
+   :c (random-float -0.5 4.0)
+   :d (random-float -0.5 4.0)
+   :e (random-float -0.5 4.0)
+   :f (random-float -0.5 4.0)))
+
+(defun draw-strange-attractor (&key img
+                                 iterations
+                                 attractor
+                                 xxmin xxmax yymin yymax)
+  (let* (
+         (height (png:image-height img))
+         (width (png:image-width img))
+
+         (xinc (/ width (- xxmax xxmin)))
+         (yinc (/ height (- yymax yymin)))
+
+         (a (strange-attractor-a attractor))
+         (b (strange-attractor-b attractor))
+         (c (strange-attractor-c attractor))
+         (d (strange-attractor-d attractor))
+         (e (strange-attractor-e attractor))
+         (f (strange-attractor-f attractor))
+         (x 0)
+         (y 0)
+         (z 0))
     (dotimes (i iterations)
-      (let ((xx (- (sin (* a y)) (* z (cos (* b x)))))
+      (let (
+            (xx (- (sin (* a y)) (* z (cos (* b x)))))
             (yy (- (sin (* c x)) (cos (* d y))))
-            (zz (* e (sin x))))
+            (zz (* e (sin (* f x))))
+            )
         (setf x xx
               y yy
               z zz)
@@ -308,7 +368,131 @@
             (let ((xxx (* (- xx xxmin) xinc))
                   (yyy (* (- yy yymin) yinc)))
               (if (and (< xxx width) (< yyy height))
-                  (increment-pixel img (truncate xxx) (truncate yyy)))))))
+                  (increment-pixel img (truncate xxx) (truncate yyy)))))))))
 
-    (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
-                    (png:encode img output))))
+(defun strange-attractor (&key file-name
+                                      (xxmin -2.4) (xxmax 2.4)
+                                      (yymin -2.4) (yymax 2.4)
+                                      (width 1600) (height 1600)
+                                      (iterations 5000000)
+                                      (attractor (make-strange-attractor)))
+  "Draw a strange-attractor fractal into file-name, zoomed into the window specified by xxmin,xxmax and yymin,yymax.  iterations is the number of iterations to run.  a, b, c, d, and e are the parameters of the strange attractor and can be modified for various effects."
+  (ensure-directories-exist file-name)
+  (let ((img (png:make-image height width 3 8)))
+    (draw-strange-attractor :img img
+                            :attractor attractor
+                            :iterations iterations
+                            :xxmin xxmin :xxmax xxmax
+                            :yymin yymin :yymax yymax)
+    (with-open-file (output file-name
+                            :element-type '(unsigned-byte 8)
+                            :direction :output
+                            :if-exists :supersede)
+      (png:encode img output))))
+
+
+(defun interpolate (a b cur-step steps)
+  (let ((da (/ (- (strange-attractor-a b) (strange-attractor-a a)) steps))
+        (db (/ (- (strange-attractor-b b) (strange-attractor-b a)) steps))
+        (dc (/ (- (strange-attractor-c b) (strange-attractor-c a)) steps))
+        (dd (/ (- (strange-attractor-d b) (strange-attractor-d a)) steps))
+        (de (/ (- (strange-attractor-e b) (strange-attractor-e a)) steps))
+        (df (/ (- (strange-attractor-e b) (strange-attractor-e a)) steps)))
+    (make-strange-attractor 
+     :a (+ (strange-attractor-a a) (* da cur-step))
+     :b (+ (strange-attractor-b a) (* db cur-step))
+     :c (+ (strange-attractor-c a) (* dc cur-step))
+     :d (+ (strange-attractor-d a) (* dd cur-step))
+     :e (+ (strange-attractor-e a) (* de cur-step))
+     :f (+ (strange-attractor-f a) (* df cur-step)))))
+
+(defun next-highest-multiple (want factor)
+           (let ((dvi (floor (/ want factor))))
+             (if (< (* dvi factor) want)
+                 (* (+ dvi 1) factor)
+                 want)))
+
+(defun format-sa (stream sa)
+  (format stream "(make-strange-attractor :a ~a :b ~a :c ~a :d ~a :e ~a :f ~a)" (strange-attractor-a sa) (strange-attractor-b sa) (strange-attractor-c sa) (strange-attractor-d sa) (strange-attractor-e sa) (strange-attractor-f sa)))
+  
+(defun strange-attractor-animation (&key output-directory (frames 120) (xxmin -2.4) (xxmax 2.4) (yymin -2.4) (yymax 2.4)
+                                      (width 1600) (height 1600) (iterations 5000000)
+                                      (attractors (list (random-sa) (random-sa)))
+                                      (repeat t)
+                                      (write-info-file t)
+                                      (verbose t)
+                                      (threads 8))
+  "Draw an animation of a strange attractor fractal morphing into another strange attractor."
+  ;; (trivial-main-thread:with-body-in-main-thread
+  ;;     (:blocking t)
+    (let* ((real-dir-name (ensure-directories-exist
+                           (if (char=  #\/ (aref output-directory (- (length output-directory) 1)))
+                               output-directory
+                               (concatenate 'string output-directory "/"))))
+
+           (all-attractors (if repeat
+                               (cons (car (last attractors)) attractors)
+                               attractors))
+           (real-frames (next-highest-multiple frames (length all-attractors)))
+           (transition-frame-count (/ real-frames (length all-attractors)))
+           
+           (x 0)
+           (y 0)
+           (z 0)
+           (kernel (lparallel:make-kernel threads))
+           (outf (if write-info-file (open (format nil "~aanimation_info.txt" real-dir-name) :direction :output :if-exists :supersede :if-does-not-exist :create) nil))
+           (futures nil)
+           ;; (tp (thread-pool:make-thread-pool threads))
+           )
+      ;; (thread-pool:start-pool tp)
+      (setf lparallel:*kernel* kernel)
+      (unwind-protect
+           (progn
+             (format t "Strange attractors in animation ~a~%" all-attractors)
+             (when outf
+               (format outf ";; Attractors~%(fractal:make-strange-attractor~%    :output-directory ~a~%    :frames ~a~%    :xxmin ~a~%    :xxmax ~a~%    :yymin ~a~%    :yymax ~a~%    :width ~a~%    :height ~a~%    :iterations ~a~%    :repeat ~a~%    :write-info-file ~a~%    :verbose ~a~%    :threads ~a~%    :attractors (list ~{ ~a~^  ~}))~%~%" output-directory frames xxmin xxmax yymin yymax width height iterations repeat write-info-file verbose threads (mapcar (lambda (sa) (format-sa nil sa)) attractors)))
+             
+             (loop
+                with cur-frame = 0
+                for from-sa in all-attractors
+                for to-sa in (cdr all-attractors)
+                do
+                  (format t "Transitioning from ~a to ~a~%" from-sa to-sa)
+                  (dotimes (i transition-frame-count)
+                    (let ((da (interpolate from-sa to-sa i transition-frame-count))
+                          (img (png:make-image height width 3 8))
+                          (output-file-name (format nil "~aframe~5,'0d.png" real-dir-name cur-frame)))
+                      (when (and outf verbose)
+                        (format outf ";; Frame ~a~%~a~%" cur-frame (format-sa nil da))
+                        (finish-output outf))
+                      (incf cur-frame)
+                      (setf futures
+                            (cons
+                             (lparallel:future
+                               (format t "Creating ~a...~%" output-file-name)
+                               (draw-strange-attractor :img img :attractor da
+                                                       :iterations iterations
+                                                       :xxmin xxmin :xxmax xxmax
+                                                       :yymin yymin :yymax yymax)
+                               (with-open-file (output output-file-name
+                                                       :element-type '(unsigned-byte 8)
+                                                       :direction :output
+                                                       :if-exists :supersede)
+                                 (png:encode img output))) futures))))))
+        (when futures (dolist (fut futures) (lparallel:force fut)))
+        (when outf (close outf))
+        (when kernel (lparallel:end-kernel kernel))
+        )))
+    
+;; 
+;;     (dotimes (i frames)
+;;       (let ((da (interpolate first-sa second-sa i frames))
+;;             (img (png:make-image height width 3 8))
+;;             (output-file-name (format nil "~aframe~5,'0d.png" real-dir-name i)))
+;;         (format t "Creating ~a..." output-file-name)
+;;         (draw-strange-attractor img :attractor da :iterations iterations :xxmin xxmin :xxmax xxmax :yymin yymin :yymax yymax)
+;;         (format t "~%")
+;;         (with-open-file (output output-file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+;;           (png:encode img output))))))
+
+

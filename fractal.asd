@@ -5,7 +5,7 @@
   :description "Library of fractal drawing functions, including Mandelbrot set, strange attractors, fractal trees, and some other random stuff."
   :author "Jeremiah LaRocco <jeremiah.larocco@gmail.com>"
   :license "ISC"
-  :depends-on (#:png #:cl-cairo2)
+  :depends-on (#:png #:cl-cairo2 #:lparallel)
   :components ((:static-file "LICENSE")
                (:file "package")
                (:file "fractal")))
