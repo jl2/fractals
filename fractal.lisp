@@ -4,7 +4,7 @@
 
 ;; I'm not aiming for super fast code (although faster is better)
 ;; But turning on optimizations never hurts
-(declaim (optimize (speed 3) (safety 1) (compilation-speed 0) (debug 0)))
+(declaim (optimize (speed 2) (safety 3) (compilation-speed 0) (debug 3)))
 
 ;; Some interesting Mandlbrot set locations to zoom in on:
 
@@ -29,74 +29,121 @@
   (declare (x (unsigned-byte 32)))
   (declare (width (unsigned-byte 32)))
   (declare (xmin double-float))
-  (declare (ymax double-float))
+  (declare (xmax double-float))
   (+ xmin (* (- xmax xmin) (/ x width 1.0d0))))
+
+(defun unmap-val (x width xmin xmax)
+  (declare (x double-float))
+  (declare (width (unsigned-byte 32)))
+  (declare (xmin double-float))
+  (declare (xmax double-float))
+  (the (signed-byte 32) (round (* width (/ (- x xmin) (- xmax xmin))))))
+  
 
 (declaim (ftype (function
                  ((unsigned-byte 32) (unsigned-byte 32) double-float double-float )) map-val))
 
-(defun set-pixel (img x y r g b)
+(defun set-pixel-png (img x y r g b)
   "Set a pixel in im at location x,y to color (r,g,b)"
   (setf (aref img x y 0) r)
   (setf (aref img x y 1) g)
   (setf (aref img x y 2) b))
 
-(defun increment-pixel (img x y)
+(defun increment-pixel (img x y cnt)
   "Increment each color component of the pixel in img at location x,y by 1"
-  (if (< (aref img y x 0) 255)
-      (progn 
-        (incf (aref img y x 0))
-        (incf (aref img y x 1))
-        (incf (aref img y x 2)))))
+  (let ((max-val (if (= (png:image-bit-depth img) 8) 255 65535)))
+  (when (and (<= (+ (aref img y x 0) cnt) max-val)
+             (<= (+ (aref img y x 1) cnt) max-val)
+             (<= (+ (aref img y x 2) cnt) max-val))
+    (incf (aref img y x 0) cnt)
+    (incf (aref img y x 1) cnt)
+    (incf (aref img y x 2) cnt))))
 
-(defun assign-pixel (img x y iter iterations)
+(defun increment-red (img x y cnt)
+  "Increment each color component of the pixel in img at location x,y by 1"
+  (when (<= (+ (aref img y x 0) cnt) (if (= (png:image-bit-depth img) 8) 255 65535))
+    (incf (aref img y x 0) cnt)))
+
+(defun increment-green (img x y cnt)
+  "Increment each color component of the pixel in img at location x,y by 1"
+  (when (<= (+ (aref img y x 1) cnt) (if (= (png:image-bit-depth img) 8) 255 65535))
+    (incf (aref img y x 1) cnt)))
+
+(defun increment-blue (img x y cnt)
+  "Increment each color component of the pixel in img at location x,y by 1"
+  (when (<= (+ (aref img y x 2) cnt) (if (= (png:image-bit-depth img) 8) 255 65535))
+    (incf (aref img y x 2) cnt)))
+
+(defun assign-pixel (img x y iter iterations set-pixel)
   "Color the pixel of img at location x,y depending on the number of iterations and the max iterations"
-  (declare (x double-float))
-  (declare (y double-float))
+  (declare (x (unsigned-byte 32)))
+  (declare (y (unsigned-byte 32)))
   (declare (iter (unsigned-byte 32)))
   (declare (iterations (unsigned-byte 32)))
-
   (let* ((ip (/ iter iterations 1.0d0))
-         (r (* ip 255))
-         (g (* ip 255))
-         (b (- 255 (* ip 255) )))
-    (set-pixel img x y (truncate r) (truncate g) (truncate b))))
+         (maxval (if (= (png:image-bit-depth img) 8) 255 65535))
+         (r (* ip maxval))
+         (g (* ip maxval))
+         (b (-  (* ip maxval) )))
+    (funcall set-pixel x y (truncate r) (truncate g) (truncate b))))
 
-(defun make-mandelbrot (&key (file-name)
-                             (width 100) (height 100)
-                             (xmin -2.5) (xmax 1.0)
-                             (ymin -1.0) (ymax 1.0)
-                             (iterations 100))
-  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+
+(defun draw-mandelbrot (&key
+                          (width 100) (height 100)
+                          (xmin -2.5) (xmax 1.0)
+                          (ymin -1.0) (ymax 1.0)
+                          (iterations 100)
+                          set-pixel)
   (declare (type (unsigned-byte 32) width height iterations))
   (let ((xxmin (coerce xmin 'double-float))
         (yymin (coerce ymin 'double-float))
         (xxmax (coerce xmax 'double-float))
         (yymax (coerce ymax 'double-float)))
     (declare (type double-float xxmin yymin xxmax yymax))
+    (dotimes (i height)
+      (declare (type (unsigned-byte 32) i))
 
+      (let ((yp (map-val i height yymax yymin)))
+        (declare (type double-float yp))
+
+        (dotimes (j width)
+          (declare (type (unsigned-byte 32) j))
+
+          (let ((iters
+                 (do* ((xp (map-val j width xxmin xxmax))
+                       (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
+                       (iter 0 (incf iter)))
+                      ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
+                   (declare (type double-float xp))
+                   (declare (type (unsigned-byte 32) iter)))))
+            (declare (type (unsigned-byte 32) iters))
+            (let* ((ip (/ iters iterations 1.0d0))
+                   (r (truncate (* ip 255)))
+                   (g (truncate (* ip 255)))
+                   (b (truncate (- 255 (* ip 255) ))))
+              (declare (type (unsigned-byte 32) r g b))
+              (funcall set-pixel i j r g b))))))))
+
+
+(defun make-mandelbrot (&key
+                          (file-name)
+                          (width 100) (height 100)
+                          (xmin -2.5) (xmax 1.0)
+                          (ymin -1.0) (ymax 1.0)
+                          (iterations 100))
+  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+  (declare (type (unsigned-byte 32) width height iterations))
+  (ensure-directories-exist file-name)
+  (let ((xxmin (coerce xmin 'double-float))
+        (yymin (coerce ymin 'double-float))
+        (xxmax (coerce xmax 'double-float))
+        (yymax (coerce ymax 'double-float)))
+    (declare (type double-float xxmin yymin xxmax yymax))
     (let ((img (png:make-image height width 3 8)))
-      (dotimes (i (png:image-height img))
-        (declare (type (unsigned-byte 32) i))
-
-        (let ((yp (map-val i height yymax yymin)))
-          (declare (type double-float yp))
-
-          (dotimes (j (png:image-width img))
-            (declare (type (unsigned-byte 32) j))
-
-            (let ((iters
-                   (do* ((xp (map-val j width xxmin xxmax))
-                         
-                         (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
-                         (iter 0 (incf iter)))
-                        ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
-                     (declare (type double-float xp))
-                     ;; (declare (cp double-complex))
-                     (declare (type (unsigned-byte 32) iter))
-                     )))
-              (declare (type (unsigned-byte 32) iters))
-              (assign-pixel img i j iters iterations)))))
+      (flet ((set-pix (x y r g b)
+               (set-pixel-png img x y r g b)))
+        (draw-mandelbrot :width width :height height :xmin xmin :ymin ymin :ymax ymax
+                         :iterations iterations :set-pixel #'set-pix))
       (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
         (png:encode img output)))))
 
@@ -110,32 +157,35 @@
   (let ((xxmin (coerce xmin 'double-float))
         (yymin (coerce ymin 'double-float))
         (xxmax (coerce xmax 'double-float))
-        (yymax (coerce ymax 'double-float)))
+        (yymax (coerce ymax 'double-float))
+        (img (png:make-image height width 3 8)))
     (declare (type double-float xxmin yymin xxmax yymax))
-  
-  (let ((img (png:make-image height width 3 8)))
-    (dotimes (i (png:image-height img))
-      (declare (type (unsigned-byte 32) i))
+    
+    (flet ((set-pix (x y r g b)
+             (set-pixel-png img x y r g b)))
+      (dotimes (i (png:image-height img))
+        (declare (type (unsigned-byte 32) i))
 
-      (let ((yp (map-val i height yymax yymin)))
-        (declare (type double-float yp))
+        (let ((yp (map-val i height yymax yymin)))
+          (declare (type double-float yp))
 
-        (dotimes (j (png:image-width img))
-          (declare (type (unsigned-byte 32) j))
+          (dotimes (j (png:image-width img))
+            (declare (type (unsigned-byte 32) j))
 
-          (let ((iters
-                 (do* ((xp (map-val j width xxmin xxmax))
-                       (cp (complex xp yp) (+ (expt (complex (abs (realpart cp)) (abs (imagpart cp))) 2) (complex xp yp)))
-                       (iter 0 (incf iter)))
-                      ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
-                      (declare (type double-float xp))
-;;                      (declare (type double-complex cp))
-                      (declare (type (unsigned-byte 32) iter))
-                      )))
-            (declare (type (unsigned-byte 32) iters))
-            (assign-pixel img i j iters iterations)))))
-    (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
-                    (png:encode img output)))))
+            (let ((iters
+                   (do* ((xp (map-val j width xxmin xxmax))
+                         (cp (complex xp yp) (+ (expt (complex (abs (realpart cp)) (abs (imagpart cp))) 2) (complex xp yp)))
+                         (iter 0 (incf iter)))
+                        ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
+                     (declare (type double-float xp))
+                     ;;                      (declare (type double-complex cp))
+                     (declare (type (unsigned-byte 32) iter))
+                     )))
+              (declare (type (unsigned-byte 32) iters))
+
+              (assign-pixel img i j iters iterations #'set-pix)))))
+      (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+        (png:encode img output)))))
 
 (defun make-mandelbrot-window (&key (file-name)
                                     (width 100) (height 100)
@@ -153,28 +203,34 @@
                      :ymax (+ yloc hy)
                      :iterations iterations)))
 
-(defun make-mandelbrot-animation (&key (file-name-format "image~a.png")
-                                       (width 100)
-                                       (height 100)
-                                       (iterations 100)
-                                       (xloc 0.0)
-                                       (yloc 0.0)
-                                       (xwin 3.0)
-                                       (ywin 0.5)
-                                       (zoom 10.0)
-                                       (count 10))
+(defun make-mandelbrot-animation (&key
+                                    output-directory (frames 120)
+                                    (width 100)
+                                    (height 100)
+                                    (iterations 100)
+                                    (xloc 0.0)
+                                    (yloc 0.0)
+                                    (xwin 3.0)
+                                    (ywin 0.5)
+                                    (zoom 10.0))
   "Generate a series of Mandelbrot Set images, zooming into the location xloc,yloc. The initial window width and height are given by xwin and ywin.  The number of images is given by count. Zoom specifies how much to zoom in for each frame.  The file-name-format parameter specifies a format string that can be used in the call (format t file-name-format i) to generate a file name for the ith file in the sequence - typically something like image~a.png."
-  (dotimes (i count)
-    (let ((cxwin (/ xwin (expt zoom i)))
-          (cywin (/ ywin (expt zoom i))))
-      (format t "window: ~a ~a~%" cxwin cywin)
-      (make-mandelbrot-window :file-name (format nil file-name-format i)
-                              :width width :height height
-                              :xloc xloc
-                              :yloc yloc
-                              :xwin cxwin
-                              :ywin cywin
-                              :iterations iterations))))
+  (let ((real-dir-name (ensure-directories-exist
+                        (if (char=  #\/ (aref output-directory (- (length output-directory) 1)))
+                            output-directory
+                            (concatenate 'string output-directory "/")))))
+    
+    (dotimes (i frames)
+      (let ((output-file-name (format nil "~aframe~5,'0d.png" real-dir-name i))
+            (cxwin (/ xwin (expt zoom i)))
+            (cywin (/ ywin (expt zoom i))))
+        (format t "window: ~a ~a~%" cxwin cywin)
+        (make-mandelbrot-window :file-name output-file-name
+                                :width width :height height
+                                :xloc xloc
+                                :yloc yloc
+                                :xwin cxwin
+                                :ywin cywin
+                                :iterations iterations)))))
 
 (defun home-dir (path)
   "Utility function to make relative path names relative to the user's home directory to work around Cairo weirdness."
@@ -314,12 +370,12 @@
 
 
 (defstruct strange-attractor 
-  (a 2.24 :type single-float)
-  (b 0.43 :type single-float)
-  (c -0.65 :type single-float)
-  (d -2.43 :type single-float)
-  (e 1.0 :type single-float)
-  (f 1.0 :type single-float)
+  (a 2.24 :type double-float)
+  (b 0.43 :type double-float)
+  (c -0.65 :type double-float)
+  (d -2.43 :type double-float)
+  (e 1.0 :type double-float)
+  (f 1.0 :type double-float)
   )
 
 (defun random-float (minf maxf)
@@ -368,14 +424,14 @@
             (let ((xxx (* (- xx xxmin) xinc))
                   (yyy (* (- yy yymin) yinc)))
               (if (and (< xxx width) (< yyy height))
-                  (increment-pixel img (truncate xxx) (truncate yyy)))))))))
+                  (increment-pixel img (truncate xxx) (truncate yyy) 1))))))))
 
 (defun strange-attractor (&key file-name
-                                      (xxmin -2.4) (xxmax 2.4)
-                                      (yymin -2.4) (yymax 2.4)
-                                      (width 1600) (height 1600)
-                                      (iterations 5000000)
-                                      (attractor (make-strange-attractor)))
+                            (xxmin -2.4) (xxmax 2.4)
+                            (yymin -2.4) (yymax 2.4)
+                            (width 1600) (height 1600)
+                            (iterations 5000000)
+                            (attractor (make-strange-attractor)))
   "Draw a strange-attractor fractal into file-name, zoomed into the window specified by xxmin,xxmax and yymin,yymax.  iterations is the number of iterations to run.  a, b, c, d, and e are the parameters of the strange attractor and can be modified for various effects."
   (ensure-directories-exist file-name)
   (let ((img (png:make-image height width 3 8)))
@@ -483,7 +539,116 @@
         (when outf (close outf))
         (when kernel (lparallel:end-kernel kernel))
         )))
-    
+
+(defun draw-buddhabrot (img &key
+                              (width 100) (height 100)
+                              (xmin -2.0) (xmax 2.0)
+                              (ymin -2.0) (ymax 2.0)
+                              (escape-iterations 100))
+  (declare (type (unsigned-byte 32) width height escape-iterations))
+  (let ((xxmin (coerce xmin 'double-float))
+        (yymin (coerce ymin 'double-float))
+        (xxmax (coerce xmax 'double-float))
+        (yymax (coerce ymax 'double-float))
+        (red-iters (/ escape-iterations 3))
+        (green-iters (* 2 (/ escape-iterations 3)))
+        (values (make-array escape-iterations))
+        (final-iter 0))
+    (declare (type double-float xxmin yymin xxmax yymax))
+    (dotimes (i height)
+      (declare (type (unsigned-byte 32) i))
+
+      (let ((yp (map-val i height yymax yymin)))
+        (declare (type double-float yp))
+
+        (dotimes (j width)
+          (declare (type (unsigned-byte 32) j))
+          (do* ((xp (map-val j width xxmin xxmax))
+                (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
+                (iter 0 (incf iter)))
+               ((or (>= iter escape-iterations) (> (abs cp) 2.0)) iter)
+            (progn
+              (setf (aref values iter) cp)
+              (setf final-iter iter)))
+          
+          (when (> (abs (aref values final-iter)) 2.0 )
+            (dotimes (idx final-iter)
+              (let ((rpart (unmap-val (realpart (aref values idx)) width xxmin xxmax))
+                    (ipart (unmap-val (imagpart (aref values idx)) height yymin yymax)))
+                (when (and (< rpart width) (< ipart height) (> ipart 0) (> rpart 0))
+                  (increment-pixel img rpart ipart 10)
+                    (cond ((< final-iter red-iters)
+                           (increment-red img rpart ipart 20))
+                          ((< final-iter green-iters)
+                           (increment-green img rpart ipart 40))
+                          (t
+                           (increment-blue img rpart ipart 10)))
+                  )))))))))
+
+(defun increment-pixel-complex (img cp amount xxmin yymin xxmax yymax width height)
+  (let ((rpart (unmap-val (realpart cp) width xxmin xxmax))
+        (ipart (unmap-val (imagpart cp) height yymin yymax)))
+    (when (and (< rpart width) (< ipart height) (>= ipart 0) (>= rpart 0))
+      (increment-pixel img rpart ipart amount))))
+
+
+(defun draw-buddhabrot-iterative (img &key
+                                        (iterations 10000)
+                                        (width 100) (height 100)
+                                        (xmin -2.5) (xmax 1.0)
+                                        (ymin -1.0) (ymax 1.0)
+                                        (escape-iterations 100))
+  (declare (type (unsigned-byte 32) width height iterations))
+  (let ((xxmin (coerce xmin 'double-float))
+        (yymin (coerce ymin 'double-float))
+        (xxmax (coerce xmax 'double-float))
+        (yymax (coerce ymax 'double-float))
+        (red-iters (/ escape-iterations 3))
+        (green-iters (* 2 (/ escape-iterations 3)))
+        (values (make-array escape-iterations)))
+    (declare (type double-float xxmin yymin xxmax yymax))
+    (dotimes (n iterations)
+      (let* ((rtheta (random-float 0.0 (* 2.0 pi)))
+             (rr (random-float 0.0 2.0))
+             (xp (* rr (sin rtheta)))
+             (yp (* rr (cos rtheta)))
+             (offset (complex xp yp))
+             (final-iter 0)
+             (final-cp nil))
+
+        (do* ((cp (complex xp yp) (+ (* cp cp) offset))
+              (iter 0 (incf iter)))
+             ((or (>= iter escape-iterations) (> (abs cp) 2.0)) iter)
+          (setf (aref values iter) cp)
+          (setf final-iter iter))
+        (setf final-cp (+ (* (aref values final-iter) (aref values final-iter)) offset))
+        (when (> (abs final-cp) 2.0)
+          (increment-pixel-complex img final-cp 20 xxmin yymin xxmax yymax width height)
+          (dotimes (idx final-iter)
+            (increment-pixel-complex img (aref values idx) 20 xxmin yymin xxmax yymax width height)))))))
+
+(defun make-buddhabrot (&key
+                          (file-name)
+                          (width 100) (height 100)
+                          (xmin -2.0) (xmax 2.0)
+                          (ymin -2.0) (ymax 2.0)
+                          (escape-iterations 100)
+                          (iterations 100000)
+                          )
+  "Generate a Buddhabrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+  (declare (type (unsigned-byte 32) width height iterations))
+  (let ((xxmin (coerce xmin 'double-float))
+        (yymin (coerce ymin 'double-float))
+        (xxmax (coerce xmax 'double-float))
+        (yymax (coerce ymax 'double-float)))
+    (declare (type double-float xxmin yymin xxmax yymax))
+    (let ((img (png:make-image height width 3 8)))
+      (draw-buddhabrot-iterative img :escape-iterations escape-iterations :width width :height height :xmin xmin :ymin ymin :ymax ymax
+                                 :iterations iterations)
+      ;; (draw-buddhabrot img :escape-iterations escape-iterations :width width :height height :xmin xmin :ymin ymin :ymax ymax
+      ;;                            )
+      (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+        (png:encode img output)))))
 ;; 
 ;;     (dotimes (i frames)
 ;;       (let ((da (interpolate first-sa second-sa i frames))

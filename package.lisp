@@ -8,6 +8,8 @@
 
            #:make-burning-ship
 
+           #:draw-mandelbrot
+
            #:omg-cairo
            #:spiral
            #:fractal-tree
@@ -16,6 +18,7 @@
            #:strange-attractor-animation
            #:make-strange-attractor
            #:random-sa
+           #:make-buddhabrot
            )
   )
 
