@@ -125,7 +125,7 @@
               (funcall set-pixel i j r g b))))))))
 
 
-(defun make-mandelbrot (&key
+(defun make-mandelbrot-single-threaded (&key
                           (file-name)
                           (width 100) (height 100)
                           (xmin -2.5) (xmax 1.0)
@@ -146,6 +146,66 @@
                          :iterations iterations :set-pixel #'set-pix))
       (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
         (png:encode img output)))))
+
+
+
+
+(defun draw-mandelbrot-line (png i width height xmin xmax ymin ymax iterations)
+             
+  (format t "In draw-mandelbrot-line~%")
+  (let ((yp (map-val i height ymax ymin)))
+    (declare (type double-float yp))
+
+    (dotimes (j width)
+      (declare (type (unsigned-byte 32) j))
+
+      (let ((iters
+             (do* ((xp (map-val j width xmin xmax))
+                   (cp (complex xp yp) (+ (* cp cp) (complex xp yp)))
+                   (iter 0 (incf iter)))
+                  ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
+               (declare (type double-float xp))
+               (declare (type (unsigned-byte 32) iter)))))
+        (declare (type (unsigned-byte 32) iters))
+        (let* ((ip (/ iters iterations 1.0d0))
+               (r (truncate (* ip 255)))
+               (g (truncate (* ip 255)))
+               (b (truncate (- 255 (* ip 255) ))))
+          (declare (type (unsigned-byte 32) r g b))
+          (set-pixel-png png i j r g b))))))
+
+
+(defun make-mandelbrot (&key
+                          (file-name)
+                          (width 100) (height 100)
+                          (xmin -2.5) (xmax 1.0)
+                          (ymin -1.0) (ymax 1.0)
+                          (iterations 100))
+  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+  (declare (type (unsigned-byte 32) width height iterations)
+           (type double-float xmin xmax ymin ymax))
+
+  (ensure-directories-exist file-name)
+
+  (let ((img (png:make-image height width 3 8))
+        (threads (cl-threadpool:make-threadpool 12 :max-queue-size height)))
+    (cl-threadpool:start threads)
+
+    (sb-sys:without-gcing
+      (dotimes (i height)
+        (declare (type (unsigned-byte 32) i))
+        (cl-threadpool:add-job
+         threads (lambda ()
+                   (draw-mandelbrot-line img i width height xmin xmax ymin ymax iterations))))
+      (when threads
+        (cl-threadpool:stop threads)))
+
+    (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+      (png:encode img output))))
+
+
+
+
 
 (defun make-burning-ship (&key (file-name)
                             (width 100) (height 100)
