@@ -1,8 +1,9 @@
 ;;;; package.lisp
 
 (defpackage #:fractal
-  (:use #:cl)
+  (:use #:cl #:alexandria)
   (:export #:make-mandelbrot
+           #:make-mandelbrot-single-threaded
            #:make-mandelbrot-window
            #:make-mandelbrot-animation
 

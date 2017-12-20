@@ -4,7 +4,7 @@
 
 ;; I'm not aiming for super fast code (although faster is better)
 ;; But turning on optimizations never hurts
-(declaim (optimize (speed 2) (safety 3) (compilation-speed 0) (debug 3)))
+(declaim (optimize (speed 3) (safety 3) (compilation-speed 0) (debug 3)))
 
 ;; Some interesting Mandlbrot set locations to zoom in on:
 
@@ -26,17 +26,13 @@
 
 (defun map-val (x width xmin xmax)
   "Map a value from the range 0,width to the range xmin,xmax"
-  (declare (x (unsigned-byte 32)))
-  (declare (width (unsigned-byte 32)))
-  (declare (xmin double-float))
-  (declare (xmax double-float))
-  (+ xmin (* (- xmax xmin) (/ x width 1.0d0))))
+  (declare (type (unsigned-byte 32) x width))
+  (declare (type double-float xmin xmax))
+  (the double-float (+ xmin (* (- xmax xmin) (/ x width 1.0d0)))))
 
 (defun unmap-val (x width xmin xmax)
-  (declare (x double-float))
-  (declare (width (unsigned-byte 32)))
-  (declare (xmin double-float))
-  (declare (xmax double-float))
+  (declare (type double-float x xmin xmax))
+  (declare (type (unsigned-byte 32) width))
   (the (signed-byte 32) (round (* width (/ (- x xmin) (- xmax xmin))))))
   
 
@@ -142,17 +138,20 @@
     (let ((img (png:make-image height width 3 8)))
       (flet ((set-pix (x y r g b)
                (set-pixel-png img x y r g b)))
-        (draw-mandelbrot :width width :height height :xmin xmin :ymin ymin :ymax ymax
+        (draw-mandelbrot :width width
+                         :height height
+                         :xmin xmin
+                         :xmax xmax
+                         :ymin ymin
+                         :ymax ymax
                          :iterations iterations :set-pixel #'set-pix))
       (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
         (png:encode img output)))))
 
 
 
-
-(defun draw-mandelbrot-line (png i width height xmin xmax ymin ymax iterations)
-             
-  (format t "In draw-mandelbrot-line~%")
+(defun draw-mandelbrot-line (i png width height xmin xmax ymin ymax iterations)
+  (format t "In draw-mandelbrot-line ~a~%" i)
   (let ((yp (map-val i height ymax ymin)))
     (declare (type double-float yp))
 
@@ -180,32 +179,24 @@
                           (width 100) (height 100)
                           (xmin -2.5) (xmax 1.0)
                           (ymin -1.0) (ymax 1.0)
-                          (iterations 100))
+                          (iterations 100)
+                          (thread-count 8))
   "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
   (declare (type (unsigned-byte 32) width height iterations)
            (type double-float xmin xmax ymin ymax))
 
   (ensure-directories-exist file-name)
+  (let* ((img (png:make-image height width 3 8))
+         (wq (wq:create-work-queue (rcurry #'draw-mandelbrot-line img width height xmin xmax ymin ymax iterations) thread-count)))
 
-  (let ((img (png:make-image height width 3 8))
-        (threads (cl-threadpool:make-threadpool 12 :max-queue-size height)))
-    (cl-threadpool:start threads)
+    (dotimes (i height)
+      (declare (type (unsigned-byte 32) i))
+      (wq:add-job wq i))
 
-    (sb-sys:without-gcing
-      (dotimes (i height)
-        (declare (type (unsigned-byte 32) i))
-        (cl-threadpool:add-job
-         threads (lambda ()
-                   (draw-mandelbrot-line img i width height xmin xmax ymin ymax iterations))))
-      (when threads
-        (cl-threadpool:stop threads)))
+    (wq:destroy-work-queue wq)
 
     (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
       (png:encode img output))))
-
-
-
-
 
 (defun make-burning-ship (&key (file-name)
                             (width 100) (height 100)
