@@ -242,7 +242,8 @@
                                     (width 100) (height 100)
                                     (xloc 0.0) (yloc 0.0)
                                     (xwin 3.0) (ywin 2.0)
-                                    (iterations 100))
+                                 (iterations 100)
+                                 (thread-count 8))
   "Generate a Mandelbrot Set fractal and save to the file name given. The portion of the set drawn is centered at xloc,yloc with a window xwin wide and ywin tall."
   (let ((hx (/ xwin 2.0))
         (hy (/ ywin 2.0)))
@@ -252,7 +253,8 @@
                      :xmax (+ xloc hx)
                      :ymin (- yloc hy)
                      :ymax (+ yloc hy)
-                     :iterations iterations)))
+                     :iterations iterations
+                     :thread-count thread-count)))
 
 (defun make-mandelbrot-animation (&key
                                     output-directory (frames 120)
@@ -263,7 +265,8 @@
                                     (yloc 0.0)
                                     (xwin 3.0)
                                     (ywin 0.5)
-                                    (zoom 10.0))
+                                    (zoom 10.0)
+                                    (thread-count 8))
   "Generate a series of Mandelbrot Set images, zooming into the location xloc,yloc. The initial window width and height are given by xwin and ywin.  The number of images is given by count. Zoom specifies how much to zoom in for each frame.  The file-name-format parameter specifies a format string that can be used in the call (format t file-name-format i) to generate a file name for the ith file in the sequence - typically something like image~a.png."
   (let ((real-dir-name (ensure-directories-exist
                         (if (char=  #\/ (aref output-directory (- (length output-directory) 1)))
@@ -281,7 +284,8 @@
                                 :yloc yloc
                                 :xwin cxwin
                                 :ywin cywin
-                                :iterations iterations)))))
+                                :iterations iterations
+                                :thread-count thread-count)))))
 
 (defun home-dir (path)
   "Utility function to make relative path names relative to the user's home directory to work around Cairo weirdness."
