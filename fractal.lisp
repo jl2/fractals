@@ -151,7 +151,6 @@
 
 
 (defun draw-mandelbrot-line (i png width height xmin xmax ymin ymax iterations)
-  (format t "In draw-mandelbrot-line ~a~%" i)
   (let ((yp (map-val i height ymax ymin)))
     (declare (type double-float yp))
 
@@ -197,6 +196,95 @@
 
     (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
       (png:encode img output))))
+
+
+(defun draw-julia-line (i png c width height xmin xmax ymin ymax iterations)
+  (let ((yp (map-val i height ymax ymin)))
+    (declare (type double-float yp))
+
+    (dotimes (j width)
+      (declare (type (unsigned-byte 32) j))
+
+      (let ((iters
+             (do* ((xp (map-val j width xmin xmax))
+                   (cp (complex xp yp) (+ (* cp cp) c))
+                   (iter 0 (incf iter)))
+                  ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
+               (declare (type double-float xp))
+               (declare (type (unsigned-byte 32) iter)))))
+        (declare (type (unsigned-byte 32) iters))
+        (let* ((ip (/ iters iterations 1.0d0))
+               (r (truncate (* ip 255)))
+               (g (truncate (* ip 255)))
+               (b (truncate (* (- 1.0 ip) 255))))
+          (declare (type (unsigned-byte 32) r g b))
+          (set-pixel-png png i j r g b))))))
+
+(defun make-julia (&key
+                     (c #C(0.25 0.25))
+                     (file-name)
+                     (width 400) (height 400)
+                     (xmin -2.5) (xmax 2.5)
+                     
+                     (ymin -2.5) (ymax 2.5)
+                     (iterations 100)
+                     (thread-count 8)
+                     )
+  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+  (declare (type (unsigned-byte 32) width height iterations)
+           (type double-float xmin xmax ymin ymax))
+
+  (ensure-directories-exist file-name)
+  (let* ((img (png:make-image height width 3 8))
+         (wq (wq:create-work-queue (rcurry #'draw-julia-line img c width height xmin xmax ymin ymax iterations) thread-count)))
+
+    (dotimes (i height)
+      (declare (type (unsigned-byte 32) i))
+      (wq:add-job wq i))
+
+    (wq:destroy-work-queue wq)
+
+    (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+      (png:encode img output))))
+
+(defun make-julia-animation (&key
+                               (frames 120)
+                               (location-function (lambda (i)
+                                                    (let ((tval (* dt i)))
+                                                      (complex (- tval 1.0)
+                                                               (sin tval)))))
+                               (output-directory)
+                               (width 400) (height 400)
+                               (xmin -2.5) (xmax 2.5)
+                               (ymin -2.5) (ymax 2.5)
+                               (iterations 100)
+                               (thread-count 8))
+  (let ((real-dir-name (ensure-directories-exist
+                        (if (char=  #\/ (aref output-directory (- (length output-directory) 1)))
+                            output-directory
+                            (concatenate 'string output-directory "/")))))
+    
+    (dotimes (i frames)
+      (let ((output-file-name (format nil "~aframe~5,'0d.png" real-dir-name i)))
+        (make-julia :file-name output-file-name
+                    :width width :height height
+                    :c (funcall location-function i)
+                    :xmin xmin
+                    :xmax xmax
+                    :ymin ymin
+                    :ymax ymax
+                    :iterations iterations
+                    :thread-count thread-count)))))
+
+(defun neat-animation-1 (&key (output-directory "/Users/jeremiahlarocco/images/fractals/julia-animation/"))
+  (let* ((num-frames 400)
+         (dt (/ 1.0 num-frames)))
+    (fractal:make-julia-animation :output-directory output-directory
+                                  :location-function (lambda (i) (let ((tval (* dt i))) (complex (- tval 1.0) (sin tval))))
+                                  :frames num-frames
+                                  :xmin -1.5 :xmax 1.5 :ymin -1.5 :ymax 1.5
+                                  :iterations 80
+                                  :width 1200 :height 1200)))
 
 (defun make-burning-ship (&key (file-name)
                             (width 100) (height 100)
@@ -637,8 +725,7 @@
                           ((< final-iter green-iters)
                            (increment-green img rpart ipart 40))
                           (t
-                           (increment-blue img rpart ipart 10)))
-                  )))))))))
+                           (increment-blue img rpart ipart 10))))))))))))
 
 (defun increment-pixel-complex (img cp amount xxmin yymin xxmax yymax width height)
   (let ((rpart (unmap-val (realpart cp) width xxmin xxmax))

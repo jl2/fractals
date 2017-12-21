@@ -3,6 +3,11 @@
 (defpackage #:fractal
   (:use #:cl #:alexandria)
   (:export #:make-mandelbrot
+
+           #:make-julia
+           #:make-julia-animation
+           #:neat-animation-1
+
            #:make-mandelbrot-single-threaded
            #:make-mandelbrot-window
            #:make-mandelbrot-animation
