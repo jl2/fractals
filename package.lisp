@@ -7,6 +7,12 @@
            #:make-julia
            #:make-julia-animation
            #:neat-animation-1
+           #:neat-animation-2
+           #:random-walk-julia-animation
+
+           #:make-radial-julia
+           #:make-radial-julia-animation
+           #:random-walk-radial-julia-animation
 
            #:make-mandelbrot-single-threaded
            #:make-mandelbrot-window

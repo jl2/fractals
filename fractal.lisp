@@ -198,27 +198,43 @@
       (png:encode img output))))
 
 
+
+(defun neat-colors (iters iterations i j width height)
+  (declare (ignorable iters iterations i j width height))
+  (let* ((ip (/ iters iterations 1.0d0))
+         (r (truncate (* 255 (* 0.5 (+ 1.0 (cos (* 7 pi ip)))) (mod iters 2))))
+         (g (truncate (* 255 (* 0.5 (+ 1.0 (cos (* pi ip)))) (mod iters 2))))
+         (b (truncate (* 255 (* 0.5 (+ 1.0 (cos (* 37 pi ip)))) (mod iters 2)))))
+    (declare (type (unsigned-byte 32) r g b))
+    (values r g b)))
+
+(defun black-and-white  (iters iterations i j width height)
+  (declare (ignorable iters iterations i j width height))
+  (let ((val (* 255 (mod iters 2))))
+    (values val val val)))
+
+(defun smooth-colors (iters iterations i j width height)
+  (declare (ignorable iters iterations i j width height))
+  (let ((tval (/ iters iterations 1.0)))
+    (values (truncate (* 255 (- 1 tval)))
+            (truncate (+ (* 127 (sin (* 3 pi tval))) 127))
+            (truncate (+ (* 127 (cos (* pi tval))) 127)))))
+
 (defun draw-julia-line (i png c width height xmin xmax ymin ymax iterations)
   (let ((yp (map-val i height ymax ymin)))
     (declare (type double-float yp))
 
     (dotimes (j width)
       (declare (type (unsigned-byte 32) j))
-
       (let ((iters
              (do* ((xp (map-val j width xmin xmax))
-                   (cp (complex xp yp) (+ (* cp cp) c))
+                   (cp (complex xp yp) (+ (expt cp 2.1) c))
                    (iter 0 (incf iter)))
                   ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
                (declare (type double-float xp))
                (declare (type (unsigned-byte 32) iter)))))
         (declare (type (unsigned-byte 32) iters))
-        (let* ((ip (/ iters iterations 1.0d0))
-               (r (truncate (* ip 255)))
-               (g (truncate (* ip 255)))
-               (b (truncate (* (- 1.0 ip) 255))))
-          (declare (type (unsigned-byte 32) r g b))
-          (set-pixel-png png i j r g b))))))
+        (multiple-value-call #'set-pixel-png png i j (smooth-colors iters iterations i j width height))))))
 
 (defun make-julia (&key
                      (c #C(0.25 0.25))
@@ -250,7 +266,7 @@
 (defun make-julia-animation (&key
                                (frames 120)
                                (location-function (lambda (i)
-                                                    (let ((tval (* dt i)))
+                                                    (let ((tval (* (/ 1.0 120) i)))
                                                       (complex (- tval 1.0)
                                                                (sin tval)))))
                                (output-directory)
@@ -259,22 +275,28 @@
                                (ymin -2.5) (ymax 2.5)
                                (iterations 100)
                                (thread-count 8))
-  (let ((real-dir-name (ensure-directories-exist
+  (let* ((real-dir-name (ensure-directories-exist
                         (if (char=  #\/ (aref output-directory (- (length output-directory) 1)))
                             output-directory
-                            (concatenate 'string output-directory "/")))))
-    
-    (dotimes (i frames)
-      (let ((output-file-name (format nil "~aframe~5,'0d.png" real-dir-name i)))
-        (make-julia :file-name output-file-name
-                    :width width :height height
-                    :c (funcall location-function i)
-                    :xmin xmin
-                    :xmax xmax
-                    :ymin ymin
-                    :ymax ymax
-                    :iterations iterations
-                    :thread-count thread-count)))))
+                            (concatenate 'string output-directory "/"))))
+         (description-file-name (format nil "~adescription.lisp" real-dir-name)))
+    (with-open-file (outf description-file-name :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (format outf "(list ~%")
+      (dotimes (i frames)
+        (let ((output-file-name (format nil "~aframe~5,'0d.png" real-dir-name i))
+              (point (funcall location-function i)))
+          (format t "Drawing Julia set: ~a~%" point)
+          (format outf "~a~%" point)
+          (make-julia :file-name output-file-name
+                      :width width :height height
+                      :c point
+                      :xmin xmin
+                      :xmax xmax
+                      :ymin ymin
+                      :ymax ymax
+                      :iterations iterations
+                      :thread-count thread-count)))
+      (format outf ")~%"))))
 
 (defun neat-animation-1 (&key (output-directory "/Users/jeremiahlarocco/images/fractals/julia-animation/"))
   (let* ((num-frames 400)
@@ -284,7 +306,71 @@
                                   :frames num-frames
                                   :xmin -1.5 :xmax 1.5 :ymin -1.5 :ymax 1.5
                                   :iterations 80
-                                  :width 1200 :height 1200)))
+                                  :width 600 :height 600)))
+
+(defun neat-animation-2 (&key (output-directory "/Users/jeremiahlarocco/images/fractals/julia-animation/"))
+  (time (let* ((num-frames 200)
+                      (output-directory "/home/jeremiah/images/fractals/julia-animation5/")
+                      (dt (/ 1.0 num-frames)))
+                 (fractal:make-julia-animation :output-directory output-directory
+                                               :location-function (lambda (i) (let ((tval (* dt i))) (complex (- tval 1.0) (* 0.75 (cos tval)))))
+                                               :frames num-frames
+                                               :xmin -1.5 :xmax 1.5 :ymin -1.5 :ymax 1.5
+                                               :iterations 80
+                                               :width 800 :height 800))))
+
+(defun random-walk-julia-animation (&key
+                                      (output-directory "/Users/jeremiahlarocco/images/fractals/julia-animation/")
+                                      (frame-count 360)
+                                      (start-point (complex (- (random 1.0) 0.75) (random 0.5)))
+                                      (change-direction-prob 0.125)
+                                      (dt 0.01)
+                                      (width 800)
+                                      (height 800)
+                                      (iterations 80)
+                                      (xmin -1.5)
+                                      (xmax 1.5)
+                                      (ymin -1.5)
+                                      (ymax 1.5)
+                                      (lower-bound (complex -1.0 -1.0))
+                                      (upper-bound (complex 0.5 1.0)))
+  (let* (
+         (current-location start-point)
+         (real-dir 1)
+         (imag-dir 1))
+    
+    (flet ((point-compute (i)
+             (declare (ignorable i))
+             (incf current-location (complex (* real-dir (random dt)) (* imag-dir (random dt))))
+             (format t "~a ~a ~a ~a ~a ~%" current-location upper-bound lower-bound real-dir imag-dir)
+             (when (> change-direction-prob (random 1.0))
+               (setf real-dir (- real-dir)))
+
+             (when (> change-direction-prob (random 1.0))
+               (setf imag-dir (- imag-dir)))
+
+             (when (> (realpart current-location) (realpart upper-bound))
+               (format t "Reversing real-dir~%")
+               (setf real-dir (- real-dir)))
+             (when (< (realpart current-location) (realpart lower-bound))
+               (format t "Reversing real-dir~%")
+               (setf real-dir (- real-dir)))
+
+             (when (> (imagpart current-location) (imagpart upper-bound))
+               (format t "Reversing imag-dir~%")
+               (setf imag-dir (- imag-dir)))
+             (when (< (imagpart current-location) (imagpart lower-bound))
+               (format t "Reversing imag-dir~%")
+               (setf imag-dir (- imag-dir)))
+
+             current-location))
+      (fractal:make-julia-animation :output-directory output-directory
+                                    :location-function #'point-compute
+                                    :frames frame-count
+                                    :xmin xmin :xmax xmax
+                                    :ymin ymin :ymax ymax
+                                    :iterations iterations
+                                    :width width :height height))))
 
 (defun make-burning-ship (&key (file-name)
                             (width 100) (height 100)
@@ -803,3 +889,129 @@
 ;;           (png:encode img output))))))
 
 
+
+(defun draw-radial-julia-line (i png c width height rmin rmax tmin tmax iterations)
+  (let ((rp (map-val i height rmin rmax)))
+    (dotimes (j width)
+      (declare (type (unsigned-byte 32) j))
+      (let ((iters
+             (do* ((tp (map-val j width tmax tmin))
+                   (cp (complex (* rp (sin tp)) (* rp (cos tp))) (+ (* cp cp) c))
+                   (iter 0 (incf iter)))
+                  ((or (>= iter iterations) (> (abs cp) 4.0)) iter)
+               (declare (type (unsigned-byte 32) iter)))))
+        (declare (type (unsigned-byte 32) iters))
+        (multiple-value-call #'set-pixel-png png i j (black-and-white iters iterations i j width height))))))
+
+(defun make-radial-julia (&key
+                            (c #C(0.25 0.25))
+                            (file-name)
+                            (width 400) (height 400)
+                            (rmin 0.0) (rmax 1.25)
+                            (tmin 0.0) (tmax (* 2 pi))
+                            (iterations 100)
+                            (thread-count 8))
+  "Generate a Mandelbrot Set fractal and save to the file name given.  The portion of the set drawn is given by xmin,xmax and ymin,ymax."
+  (declare (type (unsigned-byte 32) width height iterations)
+           (type double-float rmin rmax tmin tmax))
+
+  (ensure-directories-exist file-name)
+  (let* ((img (png:make-image height width 3 8))
+         (wq (wq:create-work-queue (rcurry #'draw-radial-julia-line img c width height rmin rmax tmin tmax iterations) thread-count)))
+
+    (dotimes (i height)
+      (declare (type (unsigned-byte 32) i))
+      (wq:add-job wq i))
+
+    (wq:destroy-work-queue wq)
+
+    (with-open-file (output file-name :element-type '(unsigned-byte 8) :direction :output :if-exists :supersede)
+      (png:encode img output))))
+
+(defun make-radial-julia-animation (&key
+                               (frames 120)
+                               (location-function (lambda (i)
+                                                    (let ((tval (* (/ 1.0 120) i)))
+                                                      (complex (- tval 1.0)
+                                                               (sin tval)))))
+                               (output-directory)
+                               (width 800) (height 800)
+                               (rmin 0.0) (rmax 1.25)
+                               (tmin 0.0) (tmax (* 2 pi))
+                               (iterations 100)
+                               (thread-count 8))
+  (let* ((real-dir-name (ensure-directories-exist
+                        (if (char=  #\/ (aref output-directory (- (length output-directory) 1)))
+                            output-directory
+                            (concatenate 'string output-directory "/"))))
+         (description-file-name (format nil "~adescription.lisp" real-dir-name)))
+    (with-open-file (outf description-file-name :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (format outf "(list ~%")
+      (dotimes (i frames)
+        (let ((output-file-name (format nil "~aframe~5,'0d.png" real-dir-name i))
+              (point (funcall location-function i)))
+          (format t "Drawing Julia set: ~a~%" point)
+          (format outf "~a~%" point)
+          (make-radial-julia :file-name output-file-name
+                      :width width :height height
+                      :c point
+                      :rmin rmin
+                      :rmax rmax
+                      :tmin tmin
+                      :tmax tmax
+                      :iterations iterations
+                      :thread-count thread-count)))
+      (format outf ")~%"))))
+
+(defun random-walk-radial-julia-animation (&key
+                                      (output-directory "/Users/jeremiahlarocco/images/fractals/julia-animation/")
+                                      (frame-count 360)
+                                      (start-point (complex (- (random 1.0) 0.75) (random 0.5)))
+                                      (change-direction-prob 0.125)
+                                      (dt 0.01)
+                                      (width 800)
+                                      (height 800)
+                                      (iterations 80)
+                                      (rmin 0.0)
+                                      (rmax 1.25)
+                                      (tmin 0.0)
+                                      (tmax (* 2 pi))
+                                      (lower-bound (complex -1.0 -1.0))
+                                      (upper-bound (complex 1.0 1.0)))
+  (let* (
+         (current-location start-point)
+         (real-dir 1)
+         (imag-dir 1))
+    
+    (flet ((point-compute (i)
+             (declare (ignorable i))
+             (incf current-location (complex (* real-dir (random dt)) (* imag-dir (random dt))))
+             (format t "~a ~a ~a ~a ~a ~%" current-location upper-bound lower-bound real-dir imag-dir)
+             (when (> change-direction-prob (random 1.0))
+               (setf real-dir (- real-dir)))
+
+             (when (> change-direction-prob (random 1.0))
+               (setf imag-dir (- imag-dir)))
+
+             (when (> (realpart current-location) (realpart upper-bound))
+               (format t "Reversing real-dir~%")
+               (setf real-dir (- real-dir)))
+             (when (< (realpart current-location) (realpart lower-bound))
+               (format t "Reversing real-dir~%")
+               (setf real-dir (- real-dir)))
+
+             (when (> (imagpart current-location) (imagpart upper-bound))
+               (format t "Reversing imag-dir~%")
+               (setf imag-dir (- imag-dir)))
+             (when (< (imagpart current-location) (imagpart lower-bound))
+               (format t "Reversing imag-dir~%")
+               (setf imag-dir (- imag-dir)))
+
+             current-location))
+      (make-radial-julia-animation :output-directory output-directory
+                                    :location-function #'point-compute
+                                    :frames frame-count
+                                    :rmin rmin :rmax rmax
+                                    :tmin tmin :tmax tmax
+                                    :iterations iterations
+                                    :width width :height height))))
